@@ -85,20 +85,28 @@ private:
 
 int main(int argc, char* argv[]) {
     if (argc < 2) {
-        std::cerr << "Usage: brainduck [-size=N] [-e] <file.bd>" << std::endl
-                  << "  -e       expand macros only, output BF to stdout" << std::endl
-                  << "  -size=N  tape size (default " << DEFAULT_TAPE_SIZE << ")" << std::endl;
+        std::cerr << "Usage: brainduck [-mode=pre|lazy] [-size=N] [-e] <file.bd>" << std::endl
+                  << "  -mode=pre|lazy  bracket strategy (default: lazy)" << std::endl
+                  << "  -e              expand macros only, output BF to stdout" << std::endl
+                  << "  -size=N         tape size (default " << DEFAULT_TAPE_SIZE << ")" << std::endl;
         std::terminate();
     }
 
     std::string filename;
     bool expand_only = false;
+    std::string mode = "lazy";
     u64 tape_size = DEFAULT_TAPE_SIZE;
 
     for (int i = 1; i < argc; ++i) {
         std::string arg(argv[i]);
         if (arg == "-e") {
             expand_only = true;
+        } else if (arg.starts_with("-mode=")) {
+            mode = arg.substr(6);
+            if (mode != "pre" && mode != "lazy") {
+                std::cerr << "Brainduck: mode must be 'pre' or 'lazy'" << std::endl;
+                std::terminate();
+            }
         } else if (arg.starts_with("-size=")) {
             tape_size = std::stoull(arg.substr(6));
             if (tape_size == 0) {
@@ -134,8 +142,11 @@ int main(int argc, char* argv[]) {
 
     if (expand_only) {
         std::cout << bf_code;
+    } else if (mode == "pre") {
+        interpreter_pre vm(bf_code, tape_size);
+        vm.interpret();
     } else {
-        interpreter vm(bf_code, tape_size);
+        interpreter_lazy vm(bf_code, tape_size);
         vm.interpret();
     }
 }

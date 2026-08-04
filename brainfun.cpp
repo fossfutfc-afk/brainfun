@@ -6,17 +6,26 @@
 
 int main(int argc, char* argv[]) {
     if (argc < 2) {
-        std::cerr << "Usage: brainfun [-size=N] <file.bf|file.brainfuck>" << std::endl
-                  << "  -size=N  tape size (default " << DEFAULT_TAPE_SIZE << ")" << std::endl;
+        std::cerr << "Usage: brainfun [-mode=pre|lazy] [-size=N] <file.bf|file.brainfuck>" << std::endl
+                  << "  -mode=pre   preprocess bracket table  (O(n) build, O(1) runtime)" << std::endl
+                  << "  -mode=lazy  lazy bracket cache (default, O(1) hot path)" << std::endl
+                  << "  -size=N     tape size (default " << DEFAULT_TAPE_SIZE << ")" << std::endl;
         std::terminate();
     }
 
     std::string filename;
+    std::string mode = "lazy";
     u64 tape_size = DEFAULT_TAPE_SIZE;
 
     for (int i = 1; i < argc; ++i) {
         std::string arg(argv[i]);
-        if (arg.starts_with("-size=")) {
+        if (arg.starts_with("-mode=")) {
+            mode = arg.substr(6);
+            if (mode != "pre" && mode != "lazy") {
+                std::cerr << "Error: mode must be 'pre' or 'lazy'" << std::endl;
+                std::terminate();
+            }
+        } else if (arg.starts_with("-size=")) {
             tape_size = std::stoull(arg.substr(6));
             if (tape_size == 0) {
                 std::cerr << "Error: tape size must be > 0" << std::endl;
@@ -44,6 +53,12 @@ int main(int argc, char* argv[]) {
 
     std::string source((std::istreambuf_iterator<char>(infile)),
                         std::istreambuf_iterator<char>());
-    interpreter vm(source, tape_size);
-    vm.interpret();
+
+    if (mode == "pre") {
+        interpreter_pre vm(source, tape_size);
+        vm.interpret();
+    } else {
+        interpreter_lazy vm(source, tape_size);
+        vm.interpret();
+    }
 }
