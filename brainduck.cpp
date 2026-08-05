@@ -5,14 +5,27 @@
 #include <unordered_map>
 #include "bf_common.h"
 
+static bool starts_with(const std::string& s, const std::string& prefix) {
+    return s.size() >= prefix.size() && s.compare(0, prefix.size(), prefix) == 0;
+}
+static bool ends_with(const std::string& s, const std::string& suffix) {
+    return s.size() >= suffix.size() &&
+           s.compare(s.size() - suffix.size(), suffix.size(), suffix) == 0;
+}
+
 class brainduck {
 public:
     brainduck() {
         // === 操作类: 不依赖输入，原地操作 ===
         macros["clear"]    = "[-]";                              // 清零当前单元
-        macros["copy"]     = "[->+>+<<]>>[-<<+>>]<<";            // 复制当前单元到右边
-        macros["move"]     = "[->+<]";                           // 移动当前单元到右边 (源清零)
-        macros["dup2"]     = "[->+>+<<]>>[-<<+>>]<<";            // 同copy, 保留原名
+        macros["copy"]     = "[->+>+<<]>>[-<<+>>]<<";            // 复制当前单元到右边 (不破坏源)
+        macros["move"]     = ">[-]<[->+<]";                      // 移动: 覆盖右边, 源清零
+        macros["add_to"]   = "[->+<]";                           // 加到右边, 源清零
+
+        // === 输出类: 无输入，直接输出 ===
+        macros["hello"]     = "++++++++++[>+++++++>++++++++++>+++>+<<<<-]"
+                              ">++.>+.+++++++..+++.>++.<<+++++++++++++++."
+                              ">.+++.------.--------.>+.>.";
 
         // === I/O 类: 完整的交互程序 ===
         macros["to_upper"] = ",----------[----------------------.,----------]";
@@ -96,23 +109,26 @@ int main(int argc, char* argv[]) {
     bool expand_only = false;
     std::string mode = "lazy";
     u64 tape_size = DEFAULT_TAPE_SIZE;
+    bool warn = false;
 
     for (int i = 1; i < argc; ++i) {
         std::string arg(argv[i]);
         if (arg == "-e") {
             expand_only = true;
-        } else if (arg.starts_with("-mode=")) {
+        } else if (starts_with(arg, "-mode=")) {
             mode = arg.substr(6);
             if (mode != "pre" && mode != "lazy") {
                 std::cerr << "Brainduck: mode must be 'pre' or 'lazy'" << std::endl;
                 std::terminate();
             }
-        } else if (arg.starts_with("-size=")) {
+        } else if (starts_with(arg, "-size=")) {
             tape_size = std::stoull(arg.substr(6));
             if (tape_size == 0) {
                 std::cerr << "Brainduck: tape size must be > 0" << std::endl;
                 std::terminate();
             }
+        } else if (arg == "-warn") {
+            warn = true;
         } else {
             filename = arg;
         }
@@ -123,7 +139,7 @@ int main(int argc, char* argv[]) {
         std::terminate();
     }
 
-    if (!filename.ends_with(".bd")) {
+    if (!ends_with(filename, ".bd")) {
         std::cerr << "Brainduck: file extension must be .bd" << std::endl;
         std::terminate();
     }
@@ -143,10 +159,10 @@ int main(int argc, char* argv[]) {
     if (expand_only) {
         std::cout << bf_code;
     } else if (mode == "pre") {
-        interpreter_pre vm(bf_code, tape_size);
+        interpreter_pre vm(bf_code, tape_size, warn);
         vm.interpret();
     } else {
-        interpreter_lazy vm(bf_code, tape_size);
+        interpreter_lazy vm(bf_code, tape_size, warn);
         vm.interpret();
     }
 }
