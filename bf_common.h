@@ -2,7 +2,6 @@
 #define BF_COMMON_H
 
 #include <unordered_map>
-#include <unordered_set>
 #include <stack>
 #include <string>
 #include <string_view>
@@ -19,6 +18,13 @@ static constexpr u64  IO_BUF_SIZE     = 4096;
 enum bf_op : unsigned char {
     OP_NONE = 0, OP_RIGHT, OP_LEFT, OP_ADD, OP_MINUS,
     OP_IN, OP_OUT, OP_LOOP, OP_POP
+};
+
+// opt 模式识别: [-] / [->+<] / [-<+>] 等
+enum OptPattern : int {
+    PAT_CLEAR      = 0,  // [-]
+    PAT_MOVE_RIGHT = 1,  // [->+<]
+    PAT_MOVE_LEFT  = 2,  // [-<+>]
 };
 
 // char → 0-7 枚举映射, 编译器生成位测试/跳转表
@@ -82,7 +88,7 @@ private:
 
     std::unordered_map<u64, u64> jump;              // Pre+Lazy: 括号跳转表
     std::stack<u64> loop_stack;                    // Lazy: 运行时 [ 追踪栈
-    std::unordered_set<u64> clear_loops;            // opt: [-] → 清零
+    std::unordered_map<u64, OptPattern> patterns;    // opt: [ 位置 → 模式
     std::unordered_map<u64, int> run_length;        // opt: 连续 +/-/</> 压缩计数
 
     // --- 缓冲 I/O ---
@@ -184,14 +190,34 @@ void basic_interpreter<Lazy>::run_optimizations() {
     for (u64 i = 0; i < length; ) {
         char c = file[i];
 
-        // [-] → set cell=0
-        if (c == '[' && i + 2 < length && file[i+1] == '-' && file[i+2] == ']') {
-            clear_loops.insert(i);
-            if constexpr (Lazy) {
-                jump[i] = i + 2;
-                jump[i + 2] = i;
+        if (c == '[' && i + 2 < length) {
+            OptPattern pat;
+            u64 end = 0;
+
+            // [-] → set cell=0
+            if (file[i+1] == '-' && file[i+2] == ']') {
+                pat = PAT_CLEAR; end = i + 2;
             }
-            i += 3;
+            // [->+<] → move right
+            else if (i + 5 < length &&
+                     file[i+1] == '-' && file[i+2] == '>' &&
+                     file[i+3] == '+' && file[i+4] == '<' && file[i+5] == ']') {
+                pat = PAT_MOVE_RIGHT; end = i + 5;
+            }
+            // [-<+>] → move left
+            else if (i + 5 < length &&
+                     file[i+1] == '-' && file[i+2] == '<' &&
+                     file[i+3] == '+' && file[i+4] == '>' && file[i+5] == ']') {
+                pat = PAT_MOVE_LEFT; end = i + 5;
+            }
+            else { ++i; continue; }
+
+            patterns[i] = pat;
+            if constexpr (Lazy) {
+                jump[i] = end;
+                jump[end] = i;
+            }
+            i = end + 1;
             continue;
         }
 
@@ -314,11 +340,23 @@ u64 basic_interpreter<Lazy>::scan_forward(u64 start) {
 
 template<bool Lazy>
 void basic_interpreter<Lazy>::loop() {
-    // opt: [-] 命中 → table[ptr]=0 并跳到 ] 之后 (O(n)→O(1))
-    if (opt_on && clear_loops.count(current)) {
-        table[ptr] = 0;
-        current = jump[current];  // 跳到 ] (proceed 会 ++current 跳过)
-        return;
+    // opt: 模式命中 → O(1) 批量操作并跳到 ] 之后
+    if (opt_on) {
+        auto pit = patterns.find(current);
+        if (pit != patterns.end()) {
+            u64 p1 = (ptr + 1) % table.size();
+            u64 p2 = (ptr > 0) ? ptr - 1 : table.size() - 1;
+            switch (pit->second) {
+                case PAT_CLEAR:
+                    table[ptr] = 0; break;
+                case PAT_MOVE_RIGHT:
+                    table[p1] += table[ptr]; table[ptr] = 0; break;
+                case PAT_MOVE_LEFT:
+                    table[p2] += table[ptr]; table[ptr] = 0; break;
+            }
+            current = jump[current];
+            return;
+        }
     }
 
     if constexpr (Lazy) {
